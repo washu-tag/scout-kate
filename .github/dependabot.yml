@@ -1,0 +1,50 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/extractor/hl7log-extractor"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/extractor/hl7-transformer"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/helm/jupyter/notebook"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/helm/jupyter/embedding-notebook"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/launchpad"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/helm/superset"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/keycloak"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/launchpad"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/orchestrator"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gradle"
+    directory: "/extractor/hl7log-extractor"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pip"
+    directory: "/extractor/hl7-transformer"
+    schedule:
+      interval: "weekly"

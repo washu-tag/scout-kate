@@ -1,0 +1,58 @@
+name: 'Trivy Image Scan'
+description: 'Scans a Docker image tarball for vulnerabilities'
+inputs:
+  image-name:
+    description: 'Name of the image artifact'
+    required: true
+  severity:
+    description: 'Severities to report and gate on'
+    required: false
+    default: 'CRITICAL,HIGH'
+runs:
+  using: 'composite'
+  steps:
+    - name: Download image artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.image-name }}
+        path: ${{ runner.temp }}
+
+    - name: Cache Trivy DB
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/trivy/db
+        key: trivy-db-${{ runner.os }}
+        restore-keys: trivy-db-
+
+    - name: Run Trivy (JSON — single scan)
+      uses: aquasecurity/trivy-action@master
+      with:
+        input: '${{ runner.temp }}/${{ inputs.image-name }}.tar'
+        scan-type: 'image'
+        format: 'json'
+        output: 'trivy-${{ inputs.image-name }}.json'
+        severity: '${{ inputs.severity }}'
+        exit-code: '0'
+
+    - name: Convert JSON to SARIF
+      shell: bash
+      run: trivy convert --format sarif --output 'trivy-${{ inputs.image-name }}.sarif' 'trivy-${{ inputs.image-name }}.json'
+
+    - name: Upload SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: 'trivy-${{ inputs.image-name }}.sarif'
+        category: 'trivy-${{ inputs.image-name }}'
+
+    - name: Gate on fixable vulnerabilities
+      shell: bash
+      run: |
+        # Fail if any fixable vulnerability at the configured severity exists
+        fixable=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' 'trivy-${{ inputs.image-name }}.json')
+        echo "Fixable vulnerabilities at ${{ inputs.severity }}: $fixable"
+        if [ "$fixable" -gt 0 ]; then
+          echo "::error::Found $fixable fixable vulnerabilities. Run 'trivy image <image>' locally to see details."
+          jq -r '.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "") | "\(.Severity)\t\(.VulnerabilityID)\t\(.PkgName)\t\(.InstalledVersion) → \(.FixedVersion)"' 'trivy-${{ inputs.image-name }}.json' | sort
+          exit 1
+        fi

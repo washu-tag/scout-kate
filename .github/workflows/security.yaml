@@ -1,0 +1,67 @@
+name: Security Scanning
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-repo-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy vulnerability scan (blocks PR)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'vuln'
+          format: 'table'
+          severity: 'CRITICAL'
+          exit-code: '1'
+
+      - name: Trivy IaC misconfig scan (SARIF — informational)
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'misconfig'
+          format: 'sarif'
+          output: 'trivy-misconfig.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload misconfig SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-misconfig.sarif'
+          category: 'trivy-misconfig'
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: semgrep scan --config p/default --config p/secrets --config p/docker --sarif --output semgrep.sarif --error
+        env:
+          SEMGREP_RULES: ""
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'semgrep.sarif'
+          category: 'semgrep'
