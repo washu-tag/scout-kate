@@ -1,5 +1,7 @@
 FROM quay.io/jupyter/pyspark-notebook:spark-3.5.3
 
+# SECURITY SCAN TEST — REVERT THIS COMMENT TO UNDO THE IMAGE REBUILD TRIGGER
+
 # Install uv for fast package installation
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
