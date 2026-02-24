@@ -7,12 +7,11 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 | Tool | What it scans | Workflow file | Blocks PRs? | Findings visible in |
 |---|---|---|---|---|
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
-| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan jobs) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
-| **Trivy repo scan** (vuln) | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL only) | Workflow logs |
-| **Trivy repo scan** (misconfig) | Dockerfiles, Helm, Terraform, K8s YAML | `security.yaml` | No (informational) | Security tab > Code scanning |
-| **Semgrep** | Ansible, YAML, Dockerfiles, secrets | `security.yaml` | Yes (error-level) | Security tab > Code scanning |
-| **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical) | PR comment |
-| **Dependabot** | Outdated dependencies and base images | `dependabot.yml` | N/A (opens PRs) | Pull requests |
+| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
+| **Trivy repo scan** | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL only) | Workflow logs |
+| **Semgrep** | Ansible, K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (error-level) | Security tab > Code scanning |
+| **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
+| **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
 
 ## Files
 
@@ -26,10 +25,24 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 │   ├── codeql.yml               # CodeQL with security-extended queries
 │   ├── dependency-review.yaml   # GitHub-native dependency diff on PRs
 │   └── security.yaml            # Trivy repo scan + Semgrep
-├── dependabot.yml               # Automated dependency update PRs
+├── dependabot.yml               # GitHub Actions version update PRs
 .trivyignore                     # Suppressed CVEs for Trivy
 .semgrepignore                   # Excluded paths for Semgrep
 ```
+
+## Prerequisites
+
+### CodeQL: disable default setup
+
+The `codeql.yml` workflow is an "advanced setup". If the repository also has CodeQL's **default setup** enabled in the GitHub UI, SARIF uploads will fail with: _"CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled"_.
+
+To fix: **Settings > Code security > Code scanning > CodeQL analysis** — switch from "Default" to "Not set".
+
+### GitHub Advanced Security (private repos)
+
+Third-party SARIF uploads (Trivy, Semgrep) require **GitHub Advanced Security** to be enabled for private repos. Without it, uploads succeed silently but findings don't appear in the Security tab. CodeQL is exempt since it's GitHub-native.
+
+Check: **Settings > Code security > GitHub Advanced Security**.
 
 ## How each scanner works
 
@@ -41,22 +54,34 @@ CodeQL runs GitHub's static analysis on push to `main`, PRs to `main`, and weekl
 
 ### Trivy image scanning
 
-A separate `scan-images` matrix job in `ci.yaml` runs in parallel with `deploy-and-test`, both triggered after `build-and-upload` completes. Each matrix entry downloads the image tarball artifact and scans it. The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a single Trivy invocation:
+A separate `scan-images` matrix job in `ci.yaml` runs **in parallel** with `deploy-and-test`, both triggered after `build-and-upload` completes. This keeps scanning off the critical path.
 
-1. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached across runs via `actions/cache` to avoid re-downloading each time.
+```
+build-and-upload (20m) ──→ scan-images (~2m, parallel) ──→ publish
+                        └──→ deploy-and-test (20m)      ──┘
+```
+
+Each matrix entry attempts to download the image tarball artifact. If the image wasn't rebuilt (no file changes and image already in registry), the download is skipped gracefully and the scan is a no-op.
+
+The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a single Trivy invocation per image:
+
+1. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached across runs via `actions/cache` to avoid re-downloading each time (~30-60s saved per scan).
 2. **SARIF conversion** — `trivy convert` produces SARIF from the JSON, which is uploaded to the GitHub Security tab for visibility.
 3. **Gate check** — a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity.
 
 The `publish` and `publish-demo` jobs require `scan-images` in their `needs:` array, so a failed scan blocks publishing. Skipped scans (via `!cancelled()`) don't block it.
 
+All third-party action references are pinned to commit hashes (not tags) to prevent supply chain attacks. Dependabot's `github-actions` ecosystem keeps these pins current.
+
 **Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook`, `launchpad`, `superset`, `keycloak`.
 
 ### Trivy repo scanning
 
-The `security.yaml` workflow runs Trivy in filesystem mode against the entire repository:
+The `security.yaml` workflow runs Trivy in filesystem mode (`scanners: vuln`) against the entire repository, checking dependency lockfiles for known CVEs. Blocks PRs on CRITICAL severity findings.
 
-- **Vulnerability scan** (`scanners: vuln`): Checks dependency lockfiles for known CVEs. Blocks PRs on CRITICAL severity findings.
-- **Misconfiguration scan** (`scanners: misconfig`): Checks Dockerfiles, Helm charts, Terraform, and Kubernetes manifests for misconfigurations. Informational only (does not block PRs) — results appear in the Security tab.
+IaC misconfiguration scanning (Dockerfiles, Helm, K8s YAML) is handled by Semgrep rather than Trivy, since Semgrep handles template syntax (Helm Go templates, Ansible Jinja2) better than Trivy's misconfig scanner, which parses raw files and produces false positives on unrendered templates.
+
+Trivy image scanning and repo scanning are **complementary**, not redundant: image scanning catches OS-level packages in base images (apt, apk) that repo scanning doesn't see, while repo scanning catches dependencies across the whole repo (including code that doesn't get containerized).
 
 ### Semgrep
 
@@ -65,22 +90,63 @@ Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` conta
 - `p/default` — general security rules
 - `p/secrets` — hardcoded credentials, API keys
 - `p/docker` — Dockerfile best practices
+- `p/ansible` — Ansible playbook and role rules
+- `p/kubernetes` — Kubernetes manifest rules
+- `p/owasp-top-ten` — OWASP Top 10 coverage
 
-Fails the job on error-level findings. Results are uploaded as SARIF to the Security tab.
+Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif --error`). A follow-up step parses the SARIF with `jq` to print a human-readable summary of findings to the workflow log. The `--error` flag fails the job on error-level findings.
 
 ### Dependency review
 
-The `dependency-review.yaml` workflow uses GitHub's first-party `actions/dependency-review-action`. On every PR, it diffs the dependency graph between the base and head commits and blocks the PR if any new dependency introduces a known critical vulnerability. It also posts a summary comment on the PR.
+The `dependency-review.yaml` workflow uses GitHub's first-party `actions/dependency-review-action`. On every PR, it diffs the dependency graph between the base and head commits and blocks the PR if any new dependency introduces a known critical vulnerability. It also posts a summary comment on every PR (`comment-summary-in-pr: always`) including license information for new dependencies.
+
+This only reviews **newly added or changed** dependencies — existing dependencies are not flagged.
 
 ### Dependabot
 
-Configured in `.github/dependabot.yml`. Automatically opens PRs for:
+Configured in `.github/dependabot.yml` for **GitHub Actions version updates only** (weekly). This keeps pinned action commit hashes current.
 
-- **GitHub Actions** versions (weekly)
-- **Docker base images** in all Dockerfiles (weekly)
-- **npm** dependencies for launchpad and orchestrator (weekly)
-- **Gradle** dependencies for hl7log-extractor (weekly)
-- **pip** dependencies for hl7-transformer (weekly)
+Dependency vulnerability alerts (npm, pip, gradle, Docker base images) are handled separately via **Dependabot security updates** enabled in the GitHub UI, which only opens PRs when a known CVE is found — not for every new version.
+
+## Reviewing findings
+
+### In the GitHub Security tab
+
+All SARIF-based scanners (CodeQL, Trivy, Semgrep) report to **Security tab > Code scanning alerts**, filterable by tool name.
+
+**Important**: The Security tab defaults to showing findings for the `main` branch. To see findings from a PR branch, use the branch dropdown filter.
+
+Useful filters in the code scanning alerts view:
+
+- `is:open` — all open findings (default)
+- `tool:semgrep` — findings from Semgrep only
+- `tool:trivy` — findings from Trivy only
+- `pr:123` — findings introduced in a specific PR
+- `is:open tool:semgrep pr:123` — combine filters to narrow results
+
+To dismiss a finding, click into it and select **Dismiss alert** with a reason (false positive, won't fix, or used in tests). Dismissals persist across future runs.
+
+### In workflow logs
+
+Each scanner also prints findings directly in the GitHub Actions workflow log:
+
+- **Trivy image scan**: The gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version).
+- **Trivy repo scan** (vuln): Prints a table directly (uses `format: 'table'`).
+- **Semgrep**: A `jq` step prints each finding's level, file:line, rule ID, and message excerpt.
+- **CodeQL**: Findings appear in the "Perform CodeQL Analysis" step output.
+
+To view: go to the workflow run in the **Actions tab**, click the relevant job, and expand the step.
+
+## Triaging findings
+
+When scanners are first enabled, expect a large initial set of findings from pre-existing code. These are not regressions — the scanners are making existing issues visible.
+
+**Recommended approach:**
+
+1. **Triage by rule, not by file** — sort by rule ID in the Security tab. A handful of rules typically produce most findings. Fixing the pattern is faster than fixing files individually.
+2. **Prioritize by severity** — fix CRITICAL/HIGH first, track MEDIUM in the backlog.
+3. **Dismiss false positives** — use "Dismiss" with a reason in the Security tab. This persists across runs.
+4. **Don't block the initial merge** — the PR-level checks prevent regressions. The existing findings are tracked in the Security tab and can be addressed over time.
 
 ## Tuning and common modifications
 
@@ -113,15 +179,10 @@ For the repo-level scan in `security.yaml`, edit the `severity` field directly i
 Edit the `semgrep scan` command in `.github/workflows/security.yaml`:
 
 ```bash
-semgrep scan --config p/default --config p/secrets --config p/docker --sarif --output semgrep.sarif --error
+semgrep scan --config p/default --config p/secrets --config p/docker --config p/ansible --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif --error
 ```
 
-Useful additional packs to consider:
-- `p/ansible` — Ansible-specific rules (may be noisy at first)
-- `p/kubernetes` — Kubernetes manifest rules
-- `p/owasp-top-ten` — OWASP Top 10 coverage
-
-Add `--config p/<pack>` for each. After adding a pack, review findings in a test branch before merging to `main` to assess noise.
+Add `--config p/<pack>` for each new pack. After adding a pack, review findings in a test branch before merging to `main` to assess noise.
 
 ### Excluding paths from Semgrep
 
@@ -132,19 +193,6 @@ tests/
 docs/
 *.md
 ```
-
-### Making Trivy IaC misconfig scan block PRs
-
-In `.github/workflows/security.yaml`, change the misconfig scan's `exit-code` from `'0'` to `'1'`:
-
-```yaml
-- name: Trivy IaC misconfig scan (SARIF — informational)
-  uses: aquasecurity/trivy-action@master
-  with:
-    exit-code: '1'  # was '0'
-```
-
-Do this only after triaging existing findings to avoid blocking all PRs immediately.
 
 ### Making dependency review block on HIGH severity (not just CRITICAL)
 
@@ -158,7 +206,7 @@ In `.github/workflows/dependency-review.yaml`:
 
 ### Adding a new container image to scanning
 
-Add an entry to the `build-and-upload` matrix in `.github/workflows/ci.yaml`. The Trivy scan step runs automatically for any image that gets built:
+1. Add an entry to the `build-and-upload` matrix in `.github/workflows/ci.yaml`:
 
 ```yaml
 strategy:
@@ -169,20 +217,16 @@ strategy:
         subproject: path/to/new-image
 ```
 
-No other changes needed — the scan step and publish gating are already wired up via the matrix.
-
-### Adding a new Dependabot ecosystem
-
-Add an entry to `.github/dependabot.yml`:
+2. Add the image name to the `scan-images` matrix:
 
 ```yaml
-- package-ecosystem: "<ecosystem>"
-  directory: "/<path>"
-  schedule:
-    interval: "weekly"
+scan-images:
+  strategy:
+    matrix:
+      image-name:
+        # ... existing entries ...
+        - new-image
 ```
-
-See [Dependabot docs](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file) for supported ecosystems and options.
 
 ### Upgrading CodeQL query pack
 
@@ -190,10 +234,6 @@ In `.github/workflows/codeql.yml`, the `queries` field controls the query pack. 
 
 - `security-extended` (current) — default + ~135 additional security queries
 - `security-and-quality` — all security queries + code quality rules (significantly noisier)
-
-### Viewing all findings
-
-All SARIF-based scanners (CodeQL, Trivy, Semgrep) report to the GitHub **Security tab > Code scanning alerts**. Each scanner uploads with a distinct `category` so findings are filterable by tool.
 
 ## Scheduled scans
 

@@ -6,7 +6,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+    - cron: '0 6 * * 1' # Weekly Monday 6am UTC
 
 permissions:
   contents: read
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy vulnerability scan (blocks PR)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -27,25 +27,6 @@ jobs:
           format: 'table'
           severity: 'CRITICAL'
           exit-code: '1'
-
-      - name: Trivy IaC misconfig scan (SARIF — informational)
-        uses: aquasecurity/trivy-action@master
-        if: always()
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          scanners: 'misconfig'
-          format: 'sarif'
-          output: 'trivy-misconfig.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-
-      - name: Upload misconfig SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: 'trivy-misconfig.sarif'
-          category: 'trivy-misconfig'
 
   semgrep:
     runs-on: ubuntu-latest
@@ -55,9 +36,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Semgrep
-        run: semgrep scan --config p/default --config p/secrets --config p/docker --sarif --output semgrep.sarif --error
+        run: semgrep scan --config p/default --config p/secrets --config p/docker --config p/ansible --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif --error
         env:
-          SEMGREP_RULES: ""
+          SEMGREP_RULES: ''
+
+      - name: Print findings to log
+        if: always()
+        shell: bash
+        run: |
+          jq -r '.runs[].results[] | "\(.level)\t\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)\t\(.ruleId)\t\(.message.text[0:120])"' semgrep.sarif | sort || echo "No findings or failed to parse SARIF"
 
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v4

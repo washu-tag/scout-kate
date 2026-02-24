@@ -12,12 +12,20 @@ runs:
   using: 'composite'
   steps:
     - name: Download image artifact
+      id: download
       uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         name: ${{ inputs.image-name }}
         path: ${{ runner.temp }}
 
+    - name: Skip notice
+      if: steps.download.outcome == 'failure'
+      shell: bash
+      run: echo "No artifact found for ${{ inputs.image-name }} — image was not rebuilt. Skipping scan."
+
     - name: Cache Trivy DB
+      if: steps.download.outcome == 'success'
       uses: actions/cache@v4
       with:
         path: ~/.cache/trivy/db
@@ -25,7 +33,8 @@ runs:
         restore-keys: trivy-db-
 
     - name: Run Trivy (JSON — single scan)
-      uses: aquasecurity/trivy-action@master
+      if: steps.download.outcome == 'success'
+      uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
       with:
         input: '${{ runner.temp }}/${{ inputs.image-name }}.tar'
         scan-type: 'image'
@@ -35,24 +44,31 @@ runs:
         exit-code: '0'
 
     - name: Convert JSON to SARIF
+      if: steps.download.outcome == 'success'
       shell: bash
-      run: trivy convert --format sarif --output 'trivy-${{ inputs.image-name }}.sarif' 'trivy-${{ inputs.image-name }}.json'
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+      run: trivy convert --format sarif --output "trivy-${IMAGE_NAME}.sarif" "trivy-${IMAGE_NAME}.json"
 
     - name: Upload SARIF
+      if: steps.download.outcome == 'success'
       uses: github/codeql-action/upload-sarif@v4
-      if: always()
       with:
         sarif_file: 'trivy-${{ inputs.image-name }}.sarif'
         category: 'trivy-${{ inputs.image-name }}'
 
     - name: Gate on fixable vulnerabilities
+      if: steps.download.outcome == 'success'
       shell: bash
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+        SEVERITY: ${{ inputs.severity }}
       run: |
         # Fail if any fixable vulnerability at the configured severity exists
-        fixable=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' 'trivy-${{ inputs.image-name }}.json')
-        echo "Fixable vulnerabilities at ${{ inputs.severity }}: $fixable"
+        fixable=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' "trivy-${IMAGE_NAME}.json")
+        echo "Fixable vulnerabilities at ${SEVERITY}: $fixable"
         if [ "$fixable" -gt 0 ]; then
           echo "::error::Found $fixable fixable vulnerabilities. Run 'trivy image <image>' locally to see details."
-          jq -r '.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "") | "\(.Severity)\t\(.VulnerabilityID)\t\(.PkgName)\t\(.InstalledVersion) → \(.FixedVersion)"' 'trivy-${{ inputs.image-name }}.json' | sort
+          jq -r '.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "") | "\(.Severity)\t\(.VulnerabilityID)\t\(.PkgName)\t\(.InstalledVersion) → \(.FixedVersion)"' "trivy-${IMAGE_NAME}.json" | sort
           exit 1
         fi
