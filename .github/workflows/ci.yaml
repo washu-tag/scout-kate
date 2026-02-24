@@ -75,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        include: &image-matrix
           - image-name: hl7log-extractor
             subproject: extractor/hl7log-extractor
           - image-name: hl7-transformer
@@ -129,13 +129,16 @@ jobs:
           python-version: '3.12'
       - name: Install Molecule and dependencies
         run: |
-          pip install molecule ansible-core pytest pydantic
+          pip install molecule ansible-core pytest pydantic tiktoken httpx pytest-asyncio
       - name: 'Unit tests: filter plugins'
         shell: bash
         run: cd ansible && pytest tests/unit/filter_plugins/ -v
       - name: 'Unit tests: Open WebUI link sanitizer filter'
         shell: bash
         run: cd ansible/roles/open-webui/files && pytest test_link_sanitizer_filter.py -v
+      - name: 'Unit tests: Open WebUI context summarization filter'
+        shell: bash
+        run: cd ansible/roles/open-webui/files && pytest test_context_summarization_filter.py -v
       - name: 'Unit tests: verify-node'
         shell: bash
         run: cd verify-node && pytest tests/ -v
@@ -155,14 +158,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image-name:
-          - hl7log-extractor
-          - hl7-transformer
-          - pyspark-notebook
-          - embedding-notebook
-          - launchpad
-          - superset
-          - keycloak
+        include: *image-matrix
     steps:
       - uses: actions/checkout@v4.2.1
       - uses: ./.github/actions/trivy-scan-image
@@ -282,7 +278,7 @@ jobs:
         run: |
           sudo -E kubectl -n scout-extractor logs deployment/hl7-transformer
   publish:
-    if: github.ref_name == 'main' && !cancelled() && needs.deploy-and-test.result == 'success'
+    if: github.ref_name == 'main' && !cancelled() && needs.deploy-and-test.result == 'success' && needs.scan-images.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -352,7 +348,7 @@ jobs:
         with:
           image-name: keycloak
   publish-demo:
-    if: startsWith(github.ref_name, 'demo') && !cancelled() && needs.deploy-and-test.result == 'success'
+    if: startsWith(github.ref_name, 'demo') && !cancelled() && needs.deploy-and-test.result == 'success' && needs.scan-images.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       contents: read

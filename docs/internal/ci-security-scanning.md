@@ -135,7 +135,7 @@ Trivy image scanning and repo scanning are **complementary**, not redundant: ima
 
 ### Semgrep
 
-Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` container. Current rule packs:
+Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` container (version-pinned to avoid unexpected breakage from `latest`). Current rule packs:
 
 - `p/default` — general security rules
 - `p/secrets` — hardcoded credentials, API keys
