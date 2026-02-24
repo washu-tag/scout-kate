@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Trivy vulnerability scan (blocks PR)
+      - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         env:
           TRIVY_DISABLE_VEX_NOTICE: 'true'
@@ -28,7 +28,7 @@ jobs:
           scanners: 'vuln'
           format: 'table'
           severity: 'CRITICAL'
-          exit-code: '1'
+          exit-code: '1' # Block PR (as opposed to using Security Tab with branch ruleset)
           trivy-config: 'trivy.yaml'
 
   semgrep:
