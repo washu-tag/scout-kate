@@ -29,6 +29,8 @@ runs:
     - name: Run Trivy (JSON — single scan)
       if: steps.download.outcome == 'success'
       uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+      env:
+        TRIVY_DISABLE_VEX_NOTICE: 'true'
       with:
         input: '${{ runner.temp }}/${{ inputs.image-name }}.tar'
         scan-type: 'image'
@@ -36,6 +38,7 @@ runs:
         output: 'trivy-${{ inputs.image-name }}.json'
         severity: '${{ inputs.severity }}'
         exit-code: '0'
+        trivy-config: 'trivy.yaml'
 
     - name: Convert JSON to SARIF
       if: steps.download.outcome == 'success'

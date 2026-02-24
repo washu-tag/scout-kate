@@ -221,9 +221,9 @@ vulnerabilities:
     statement: "no fix available in python:3.11-slim as of 2026-02"
 ```
 
-The ignore file is referenced via `trivy.yaml` (Trivy config) because the trivy-action's `trivyignores` input [strips file extensions](https://github.com/aquasecurity/trivy-action/issues/284), breaking YAML parsing. Using `trivy-config` preserves the `.yaml` extension so Trivy correctly interprets path-specific rules.
+The ignore file is referenced via `trivy.yaml` (Trivy config) because the trivy-action's `trivyignores` input [strips file extensions](https://github.com/aquasecurity/trivy-action/issues/284), breaking YAML parsing. Using `trivy-config` preserves the `.yaml` extension so Trivy correctly interprets the YAML format.
 
-The ignore file is used by the Trivy repo scan in `security.yaml`. Image scanning (`.github/actions/trivy-scan-image/`) operates on container tarballs and is not affected by this file.
+Both the Trivy repo scan (`security.yaml`) and image scan (`.github/actions/trivy-scan-image/`) use the same `trivy.yaml` config and therefore the same ignore file. Note that path-specific entries (`paths:`) use repo-relative paths and won't match inside container images — use global entries (without `paths`) for CVEs that should be suppressed in both scans.
 
 ### Changing Trivy severity thresholds
 
