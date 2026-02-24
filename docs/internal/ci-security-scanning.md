@@ -8,8 +8,8 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 |---|---|---|---|---|
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
 | **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
-| **Trivy repo scan** | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL only) | Workflow logs |
-| **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Code Scanning) | Security tab > Code scanning |
+| **Trivy repo scan** | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL/HIGH) | Workflow logs |
+| **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Code Scanning) | Security tab, PR annotations |
 | **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
 | **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
 
@@ -60,7 +60,7 @@ Under **Require status checks to pass**, add the workflow job names:
 | `deploy-and-test` | `ci.yaml` | Build/test failures (already present) |
 | `CodeQL` | `codeql.yml` | CodeQL analysis failures (already present) |
 | `Security Scanning / semgrep` | `security.yaml` | Semgrep job crash or config error |
-| `Security Scanning / trivy-repo-scan` | `security.yaml` | Trivy repo scan failure (also gates via exit-code on CRITICAL vulns) |
+| `Security Scanning / trivy-repo-scan` | `security.yaml` | Trivy repo scan failure (also gates via exit-code on CRITICAL/HIGH vulns) |
 | `scan-images` | `ci.yaml` | Trivy image scan job failures |
 | `Dependency Review / dependency-review` | `dependency-review.yaml` | Dependency review failure (also gates via exit-code on critical vulns) |
 
@@ -91,7 +91,7 @@ The Trivy repo scan (`security.yaml`) and dependency review action don't upload 
 |---|---|---|
 | **CodeQL, Semgrep** | SARIF (code scanning results) | Findings are in source code — diff-aware gating prevents pre-existing issues from blocking unrelated PRs |
 | **Trivy image scan** | SARIF + exit-code on fixable | Findings visible in Security tab; exit-code gates on fixable vulns only |
-| **Trivy repo scan** | Exit-code only | Scans dependency lockfiles. Exit-code blocks on *any* critical CVE, even newly disclosed ones against existing dependencies. SARIF diff-aware gating would miss these since they also exist on `main` |
+| **Trivy repo scan** | Exit-code only | Scans dependency lockfiles. Exit-code blocks on *any* CRITICAL/HIGH CVE, even newly disclosed ones against existing dependencies. SARIF diff-aware gating would miss these since they also exist on `main` |
 | **Dependency review** | Exit-code only | Already diff-aware by design (only examines deps added/changed in the PR). Also posts PR comments with license info, which SARIF doesn't support |
 
 ## How each scanner works
@@ -119,7 +119,7 @@ The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a sin
 2. **SARIF conversion** — `trivy convert` produces SARIF from the JSON, which is uploaded to the GitHub Security tab for visibility.
 3. **Gate check** — a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity.
 
-The `publish` and `publish-demo` jobs require `scan-images` in their `needs:` array, so a failed scan blocks publishing. Skipped scans (via `!cancelled()`) don't block it.
+The `publish` and `publish-demo` jobs require `scan-images` in their `needs:` array, so a failed or cancelled scan blocks publishing.
 
 All third-party action references are pinned to commit hashes (not tags) to prevent supply chain attacks. Dependabot's `github-actions` ecosystem keeps these pins current.
 
@@ -127,7 +127,7 @@ All third-party action references are pinned to commit hashes (not tags) to prev
 
 ### Trivy repo scanning
 
-The `security.yaml` workflow runs Trivy in filesystem mode (`scanners: vuln`) against the entire repository, checking dependency lockfiles for known CVEs. Blocks PRs on CRITICAL severity findings.
+The `security.yaml` workflow runs Trivy in filesystem mode (`scanners: vuln`) against the entire repository, checking dependency lockfiles for known CVEs. Blocks PRs on CRITICAL/HIGH severity findings.
 
 IaC misconfiguration scanning (Dockerfiles, Helm, K8s YAML) is handled by Semgrep rather than Trivy, since Semgrep handles template syntax (Helm Go templates, Ansible Jinja2) better than Trivy's misconfig scanner, which parses raw files and produces false positives on unrendered templates.
 
@@ -159,9 +159,13 @@ Dependency vulnerability alerts (npm, pip, gradle, Docker base images) are handl
 
 ## Reviewing findings
 
+### On the pull request
+
+Source-code scanners (CodeQL, Semgrep) post **inline annotations** on the PR diff for new findings, showing the rule ID, severity, and description directly on the affected lines. These appear in the "Files changed" tab. Trivy image scan findings appear in the Security tab but not as inline annotations since they reference container packages, not source lines.
+
 ### In the GitHub Security tab
 
-All SARIF-based scanners (CodeQL, Trivy, Semgrep) report to **Security tab > Code scanning alerts**, filterable by tool name.
+All SARIF-based scanners (CodeQL, Trivy, Semgrep) also report to **Security tab > Code scanning alerts**, filterable by tool name.
 
 **Important**: The Security tab defaults to showing findings for the `main` branch. To see findings from a PR branch, use the branch dropdown filter.
 
@@ -180,7 +184,7 @@ To dismiss a finding, click into it and select **Dismiss alert** with a reason (
 Each scanner also prints findings directly in the GitHub Actions workflow log:
 
 - **Trivy image scan**: The gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version).
-- **Trivy repo scan** (vuln): Prints a table directly (uses `format: 'table'`).
+- **Trivy repo scan**: Prints a table directly (uses `format: 'table'`).
 - **Semgrep**: A `jq` step prints each finding's level, file:line, rule ID, and message excerpt.
 - **CodeQL**: Findings appear in the "Perform CodeQL Analysis" step output.
 
@@ -270,26 +274,15 @@ In `.github/workflows/dependency-review.yaml`:
 
 ### Adding a new container image to scanning
 
-1. Add an entry to the `build-and-upload` matrix in `.github/workflows/ci.yaml`:
+Add an entry to the `build-and-upload` matrix in `.github/workflows/ci.yaml`. The `scan-images` job reuses the same matrix via YAML anchor (`*image-matrix`), so no second edit is needed:
 
 ```yaml
 strategy:
   matrix:
-    include:
+    include: &image-matrix
       # ... existing entries ...
       - image-name: new-image
         subproject: path/to/new-image
-```
-
-2. Add the image name to the `scan-images` matrix:
-
-```yaml
-scan-images:
-  strategy:
-    matrix:
-      image-name:
-        # ... existing entries ...
-        - new-image
 ```
 
 ### Upgrading CodeQL query pack
