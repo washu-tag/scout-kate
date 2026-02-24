@@ -209,7 +209,7 @@ vulnerabilities:
   - id: CVE-2025-32434
     paths:
       - helm/jupyter/embedding-notebook/requirements.txt
-    reason: "torch pinned at 2.0.1; upgrade to 2.6.0 pending validation"
+    statement: "torch pinned at 2.0.1; upgrade to 2.6.0 pending validation"
 ```
 
 **Suppress a CVE globally** (e.g., a base-image CVE with no available fix):
@@ -217,7 +217,7 @@ vulnerabilities:
 ```yaml
 vulnerabilities:
   - id: CVE-2025-12345
-    reason: "no fix available in python:3.11-slim as of 2026-02"
+    statement: "no fix available in python:3.11-slim as of 2026-02"
 ```
 
 The ignore file is used by the Trivy repo scan in `security.yaml`. Image scanning (`.github/actions/trivy-scan-image/`) operates on container tarballs and is not affected by this file.

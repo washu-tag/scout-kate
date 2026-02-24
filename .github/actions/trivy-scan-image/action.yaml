@@ -22,7 +22,9 @@ runs:
     - name: Skip notice
       if: steps.download.outcome == 'failure'
       shell: bash
-      run: echo "No artifact found for ${{ inputs.image-name }} — image was not rebuilt. Skipping scan."
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+      run: echo "No artifact found for ${IMAGE_NAME} — image was not rebuilt. Skipping scan."
 
     - name: Cache Trivy DB
       if: steps.download.outcome == 'success'
