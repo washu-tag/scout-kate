@@ -15,4 +15,4 @@ vulnerabilities:
   - id: CVE-2025-32434
     paths:
       - helm/jupyter/embedding-notebook/requirements.txt
-    statement: "torch pinned at 2.0.1 for embedding notebook compatibility; upgrade to 2.6.0 pending validation"
+    statement: 'torch pinned at 2.0.1 for embedding notebook compatibility; upgrade to 2.6.0 pending validation'
