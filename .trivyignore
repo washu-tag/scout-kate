@@ -1,6 +1,0 @@
-# Trivy CVE suppressions
-# Add CVE IDs here (one per line) for base-image vulnerabilities with no available fix.
-# Always include a comment explaining why the CVE is suppressed.
-#
-# Example:
-# CVE-2024-XXXXX  # no fix available in ubuntu:24.04 base image

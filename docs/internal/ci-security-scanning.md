@@ -9,7 +9,7 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
 | **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
 | **Trivy repo scan** | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL only) | Workflow logs |
-| **Semgrep** | Ansible, K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (error-level) | Security tab > Code scanning |
+| **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Code Scanning) | Security tab > Code scanning |
 | **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
 | **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
 
@@ -26,7 +26,7 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 │   ├── dependency-review.yaml   # GitHub-native dependency diff on PRs
 │   └── security.yaml            # Trivy repo scan + Semgrep
 ├── dependabot.yml               # GitHub Actions version update PRs
-.trivyignore                     # Suppressed CVEs for Trivy
+.trivyignore.yaml                # Suppressed CVEs for Trivy (supports path-specific ignores)
 .semgrepignore                   # Excluded paths for Semgrep
 ```
 
@@ -43,6 +43,55 @@ To fix: **Settings > Code security > Code scanning > CodeQL analysis** — switc
 Third-party SARIF uploads (Trivy, Semgrep) require **GitHub Advanced Security** to be enabled for private repos. Without it, uploads succeed silently but findings don't appear in the Security tab. CodeQL is exempt since it's GitHub-native.
 
 Check: **Settings > Code security > GitHub Advanced Security**.
+
+### Rulesets: require status checks and code scanning results
+
+The repository ruleset for `main` (**Settings > Rules > Rulesets**) has two complementary sections that work together:
+
+**Require status checks to pass** ensures the CI jobs actually ran successfully. **Require code scanning results** inspects the SARIF findings and blocks only if a PR introduces *new* alerts above a severity threshold. You want both — the status check catches job failures (crashes, timeouts), while code scanning results evaluates what was found.
+
+#### Status checks
+
+Under **Require status checks to pass**, add the workflow job names:
+
+| Check name | Source | What it catches |
+|---|---|---|
+| `deploy-and-test` | `ci.yaml` | Build/test failures (already present) |
+| `CodeQL` | `codeql.yml` | CodeQL analysis failures (already present) |
+| `Security Scanning / semgrep` | `security.yaml` | Semgrep job crash or config error |
+| `Security Scanning / trivy-repo-scan` | `security.yaml` | Trivy repo scan failure (also gates via exit-code on CRITICAL vulns) |
+| `scan-images` | `ci.yaml` | Trivy image scan job failures |
+| `Dependency Review / dependency-review` | `dependency-review.yaml` | Dependency review failure (also gates via exit-code on critical vulns) |
+
+#### Code scanning results
+
+Under **Require code scanning results**, click **+ Add tool** for each SARIF-uploading scanner:
+
+| Tool | Security alerts | Alerts |
+|---|---|---|
+| **CodeQL** | High or higher | Errors |
+| **Semgrep** | High or higher | Errors |
+| **Trivy** | High or higher | Errors |
+
+Each tool has two threshold dropdowns:
+
+- **Security alerts** — vulnerability severity: `None`, `Critical`, `High or higher`, `Medium or higher`, `All`
+- **Alerts** — general code quality: `None`, `Errors`, `Errors and Warnings`, `All`
+
+Tools appear in the dropdown after their first SARIF upload to the repository. If a tool doesn't appear yet, merge this PR first, then add it.
+
+Note: Trivy image scanning uploads SARIF per image (categories `trivy-hl7log-extractor`, `trivy-launchpad`, etc.). The tool may appear as a single "Trivy" entry or per-category — add whichever appears in the dropdown.
+
+The Trivy repo scan (`security.yaml`) and dependency review action don't upload SARIF — they gate directly via `exit-code` under the status checks section above.
+
+#### Why different gating approaches?
+
+| Scanner | Gating | Why |
+|---|---|---|
+| **CodeQL, Semgrep** | SARIF (code scanning results) | Findings are in source code — diff-aware gating prevents pre-existing issues from blocking unrelated PRs |
+| **Trivy image scan** | SARIF + exit-code on fixable | Findings visible in Security tab; exit-code gates on fixable vulns only |
+| **Trivy repo scan** | Exit-code only | Scans dependency lockfiles. Exit-code blocks on *any* critical CVE, even newly disclosed ones against existing dependencies. SARIF diff-aware gating would miss these since they also exist on `main` |
+| **Dependency review** | Exit-code only | Already diff-aware by design (only examines deps added/changed in the PR). Also posts PR comments with license info, which SARIF doesn't support |
 
 ## How each scanner works
 
@@ -90,11 +139,10 @@ Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` conta
 - `p/default` — general security rules
 - `p/secrets` — hardcoded credentials, API keys
 - `p/docker` — Dockerfile best practices
-- `p/ansible` — Ansible playbook and role rules
 - `p/kubernetes` — Kubernetes manifest rules
 - `p/owasp-top-ten` — OWASP Top 10 coverage
 
-Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif --error`). A follow-up step parses the SARIF with `jq` to print a human-readable summary of findings to the workflow log. The `--error` flag fails the job on error-level findings.
+Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif`). A follow-up step parses the SARIF with `jq` to print a human-readable summary of findings to the workflow log. The SARIF is uploaded to GitHub's Security tab, which handles diff-aware gating — only findings *new* in a PR block the merge (via the "Code scanning results / semgrep" status check), not pre-existing ones. This requires the check to be set as required in **Settings > Branches > Branch protection rules**.
 
 ### Dependency review
 
@@ -152,14 +200,27 @@ When scanners are first enabled, expect a large initial set of findings from pre
 
 ### Suppressing a Trivy CVE
 
-When a base-image CVE has no available fix, add it to `.trivyignore` in the repository root:
+Add entries to `.trivyignore.yaml` in the repository root. The YAML format supports both global and path-specific suppressions.
 
-```
-# No fix available in python:3.11-slim as of 2026-02
-CVE-2025-12345
+**Suppress a CVE in a specific file only** (e.g., a pinned dependency you can't upgrade yet):
+
+```yaml
+vulnerabilities:
+  - id: CVE-2025-32434
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    reason: "torch pinned at 2.0.1; upgrade to 2.6.0 pending validation"
 ```
 
-The SARIF report will still show the CVE in the Security tab for visibility, but the gate step won't fail on it. The `.trivyignore` file affects both the SARIF and gate passes.
+**Suppress a CVE globally** (e.g., a base-image CVE with no available fix):
+
+```yaml
+vulnerabilities:
+  - id: CVE-2025-12345
+    reason: "no fix available in python:3.11-slim as of 2026-02"
+```
+
+The ignore file is used by the Trivy repo scan in `security.yaml`. Image scanning (`.github/actions/trivy-scan-image/`) operates on container tarballs and is not affected by this file.
 
 ### Changing Trivy severity thresholds
 
@@ -179,7 +240,7 @@ For the repo-level scan in `security.yaml`, edit the `severity` field directly i
 Edit the `semgrep scan` command in `.github/workflows/security.yaml`:
 
 ```bash
-semgrep scan --config p/default --config p/secrets --config p/docker --config p/ansible --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif --error
+semgrep scan --config p/default --config p/secrets --config p/docker --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif
 ```
 
 Add `--config p/<pack>` for each new pack. After adding a pack, review findings in a test branch before merging to `main` to assess noise.

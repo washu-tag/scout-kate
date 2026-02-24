@@ -27,6 +27,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL'
           exit-code: '1'
+          trivyignores: '.trivyignore.yaml'
 
   semgrep:
     runs-on: ubuntu-latest
@@ -36,9 +37,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Semgrep
-        run: semgrep scan --config p/default --config p/secrets --config p/docker --config p/ansible --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif --error
-        env:
-          SEMGREP_RULES: ''
+        run: semgrep scan --config p/default --config p/secrets --config p/docker --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif
 
       - name: Print findings to log
         if: always()

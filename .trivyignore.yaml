@@ -1,0 +1,18 @@
+# Trivy CVE suppressions (YAML format — supports path-specific ignores)
+# See: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#by-inline-comments
+#
+# To suppress a CVE globally:
+#   - id: CVE-2024-XXXXX
+#     reason: "no fix available in base image"
+#
+# To suppress a CVE in a specific file only:
+#   - id: CVE-2024-XXXXX
+#     paths:
+#       - path/to/requirements.txt
+#     reason: "pinned for compatibility; upgrade tracked in SCOUT-XXX"
+
+vulnerabilities:
+  - id: CVE-2025-32434
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    reason: "torch pinned at 2.0.1 for embedding notebook compatibility; upgrade to 2.6.0 pending validation"
