@@ -12,7 +12,34 @@
 #     statement: "pinned for compatibility; upgrade tracked in SCOUT-XXX"
 
 vulnerabilities:
+  # torch — pinned at 2.0.1 for embedding notebook compatibility; upgrade pending validation
   - id: CVE-2025-32434
     paths:
       - helm/jupyter/embedding-notebook/requirements.txt
-    statement: 'torch pinned at 2.0.1 for embedding notebook compatibility; upgrade to 2.6.0 pending validation'
+    statement: 'torch pinned at 2.0.1; upgrade to 2.6.0 pending validation'
+  - id: CVE-2024-31580
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'torch pinned at 2.0.1; upgrade to 2.2.0+ pending validation'
+  - id: CVE-2024-31583
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'torch pinned at 2.0.1; upgrade to 2.2.0+ pending validation'
+  # deepspeed — pinned at 0.12.6 for embedding notebook compatibility
+  - id: CVE-2024-43497
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'deepspeed pinned at 0.12.6; upgrade to 0.15.1 pending validation'
+  # transformers — pinned at 4.45.2 for embedding notebook compatibility
+  - id: CVE-2024-11392
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'transformers pinned at 4.45.2; upgrade to 4.48.0 pending validation'
+  - id: CVE-2024-11393
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'transformers pinned at 4.45.2; upgrade to 4.48.0 pending validation'
+  - id: CVE-2024-11394
+    paths:
+      - helm/jupyter/embedding-notebook/requirements.txt
+    statement: 'transformers pinned at 4.45.2; upgrade to 4.48.0 pending validation'
