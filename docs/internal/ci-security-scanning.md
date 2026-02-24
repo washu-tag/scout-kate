@@ -26,6 +26,7 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 │   ├── dependency-review.yaml   # GitHub-native dependency diff on PRs
 │   └── security.yaml            # Trivy repo scan + Semgrep
 ├── dependabot.yml               # GitHub Actions version update PRs
+trivy.yaml                       # Trivy config (points to ignore file)
 .trivyignore.yaml                # Suppressed CVEs for Trivy (supports path-specific ignores)
 .semgrepignore                   # Excluded paths for Semgrep
 ```
@@ -114,7 +115,7 @@ Each matrix entry attempts to download the image tarball artifact. If the image 
 
 The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a single Trivy invocation per image:
 
-1. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached across runs via `actions/cache` to avoid re-downloading each time (~30-60s saved per scan).
+1. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached automatically by the trivy-action.
 2. **SARIF conversion** — `trivy convert` produces SARIF from the JSON, which is uploaded to the GitHub Security tab for visibility.
 3. **Gate check** — a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity.
 
@@ -219,6 +220,8 @@ vulnerabilities:
   - id: CVE-2025-12345
     statement: "no fix available in python:3.11-slim as of 2026-02"
 ```
+
+The ignore file is referenced via `trivy.yaml` (Trivy config) because the trivy-action's `trivyignores` input [strips file extensions](https://github.com/aquasecurity/trivy-action/issues/284), breaking YAML parsing. Using `trivy-config` preserves the `.yaml` extension so Trivy correctly interprets path-specific rules.
 
 The ignore file is used by the Trivy repo scan in `security.yaml`. Image scanning (`.github/actions/trivy-scan-image/`) operates on container tarballs and is not affected by this file.
 
