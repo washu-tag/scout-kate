@@ -674,6 +674,40 @@ base_dir: /var/lib/rancher/k3s/storage
 kubeconfig_group: docker
 ```
 
+##### CoreDNS Customization
+
+Scout can customize CoreDNS behavior by managing a `coredns-custom` ConfigMap in `kube-system`. This is primarily needed in air-gapped deployments where CoreDNS forwards unknown domains to `/etc/resolv.conf`, which may point to an upstream resolver (e.g., Tailscale MagicDNS) that gets overwhelmed with failing requests. It can also be used in non-air-gapped environments for DNS overrides.
+
+The configuration uses a three-layer model:
+
+**Layer 1 (automatic):** When `air_gapped: true`, CoreDNS automatically gets a deny-all NXDOMAIN default plus server blocks for `cluster.local` and reverse DNS, ensuring internal Kubernetes DNS resolution continues to work while blocking external lookups.
+
+**Layer 2 (structured variable):** Use `coredns_forward_domains` for domain forwarding:
+
+```yaml
+# Domains to forward to /etc/resolv.conf (e.g., Tailscale, VPN domains)
+coredns_forward_domains:
+  - ts.net
+```
+
+**Layer 3 (escape hatch):** Use `coredns_extra_server_blocks` for arbitrary CoreDNS server blocks. This works with or without air-gapped mode. Keys are descriptive names; the `.server` suffix is auto-appended to form the ConfigMap data key.
+
+```yaml
+coredns_extra_server_blocks:
+  scout-override: !unsafe |
+    app.example.com:53 {
+      template IN A app.example.com {
+        answer "{{ .Name }} 60 IN A 198.51.100.10"
+      }
+    }
+```
+
+:::{note}
+Values containing Go template syntax (e.g., `{{ .Name }}`) must use the `!unsafe` YAML tag to prevent Ansible from interpreting them as Jinja2 expressions.
+:::
+
+**ConfigMap key naming:** Keys ending in `.server` are loaded as additional CoreDNS server blocks. Keys ending in `.override` are loaded into the default server block. The air-gapped layer uses both (`airgap.override` and `airgap.server`), while domain lists and extra blocks use `.server` keys.
+
 #### Traefik Ingress
 
 ```yaml
