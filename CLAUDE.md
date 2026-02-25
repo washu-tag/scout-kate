@@ -500,6 +500,8 @@ ADRs in `docs/internal/adr/` document significant architectural decisions. Consu
 
 - **ADR 0012: Security Scan Response and Hardening** — Consolidates findings from Tenable Nessus and OWASP ZAP scans, implementing a global Traefik security headers middleware (HSTS, CSP, X-Frame-Options, etc.) to address the majority of findings. Consult when modifying security headers, Traefik middleware configuration, or evaluating future scan results.
 
+- **ADR 0014: Dependency Version Monitoring via Renovate and Dependabot** — Uses self-hosted Renovate (custom regex manager) to monitor `versions.yaml` for Helm chart, Docker image, and GitHub release updates, plus expanded Dependabot for application dependencies (npm, pip, gradle, Dockerfile base images). Consult when adding new dependencies to `versions.yaml` (add `# renovate:` annotation) or new application directories (add to `.github/dependabot.yml`).
+
 ## Key Concepts for AI Assistants
 
 ### Architecture Understanding
