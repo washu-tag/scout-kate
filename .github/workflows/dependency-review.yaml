@@ -12,3 +12,4 @@ jobs:
         with:
           fail-on-severity: critical
           comment-summary-in-pr: always
+          license-check: false

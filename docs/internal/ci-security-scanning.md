@@ -8,7 +8,6 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 |---|---|---|---|---|
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
 | **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
-| **Trivy repo scan** | Dependency lockfiles in the repo | `security.yaml` | Yes (CRITICAL/HIGH) | Workflow logs |
 | **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Code Scanning) | Security tab, PR annotations |
 | **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
 | **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
@@ -24,10 +23,8 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 │   ├── ci.yaml                  # build-and-upload + scan-images matrices, publish gated on scans
 │   ├── codeql.yml               # CodeQL with security-extended queries
 │   ├── dependency-review.yaml   # GitHub-native dependency diff on PRs
-│   └── security.yaml            # Trivy repo scan + Semgrep
+│   └── security.yaml            # Semgrep
 ├── dependabot.yml               # GitHub Actions version update PRs
-trivy.yaml                       # Trivy config (points to ignore file)
-.trivyignore.yaml                # Suppressed CVEs for Trivy (supports path-specific ignores)
 .semgrepignore                   # Excluded paths for Semgrep
 ```
 
@@ -60,7 +57,6 @@ Under **Require status checks to pass**, add the workflow job names:
 | `deploy-and-test` | `ci.yaml` | Build/test failures (already present) |
 | `CodeQL` | `codeql.yml` | CodeQL analysis failures (already present) |
 | `Security Scanning / semgrep` | `security.yaml` | Semgrep job crash or config error |
-| `Security Scanning / trivy-repo-scan` | `security.yaml` | Trivy repo scan failure (also gates via exit-code on CRITICAL/HIGH vulns) |
 | `scan-images` | `ci.yaml` | Trivy image scan job failures |
 | `Dependency Review / dependency-review` | `dependency-review.yaml` | Dependency review failure (also gates via exit-code on critical vulns) |
 
@@ -83,7 +79,7 @@ Tools appear in the dropdown after their first SARIF upload to the repository. I
 
 Note: Trivy image scanning uploads SARIF per image (categories `trivy-hl7log-extractor`, `trivy-launchpad`, etc.). The tool may appear as a single "Trivy" entry or per-category — add whichever appears in the dropdown.
 
-The Trivy repo scan (`security.yaml`) and dependency review action don't upload SARIF — they gate directly via `exit-code` under the status checks section above.
+The dependency review action doesn't upload SARIF — it gates directly via `exit-code` under the status checks section above.
 
 #### Why different gating approaches?
 
@@ -91,8 +87,7 @@ The Trivy repo scan (`security.yaml`) and dependency review action don't upload 
 |---|---|---|
 | **CodeQL, Semgrep** | SARIF (code scanning results) | Findings are in source code — diff-aware gating prevents pre-existing issues from blocking unrelated PRs |
 | **Trivy image scan** | SARIF + exit-code on fixable | Findings visible in Security tab; exit-code gates on fixable vulns only |
-| **Trivy repo scan** | Exit-code only | Scans dependency lockfiles. Exit-code blocks on *any* CRITICAL/HIGH CVE, even newly disclosed ones against existing dependencies. SARIF diff-aware gating would miss these since they also exist on `main` |
-| **Dependency review** | Exit-code only | Already diff-aware by design (only examines deps added/changed in the PR). Also posts PR comments with license info, which SARIF doesn't support |
+| **Dependency review** | Exit-code only | Already diff-aware by design (only examines deps added/changed in the PR). Also posts PR comments, which SARIF doesn't support |
 
 ## How each scanner works
 
@@ -125,14 +120,6 @@ All third-party action references are pinned to commit hashes (not tags) to prev
 
 **Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook`, `launchpad`, `superset`, `keycloak`.
 
-### Trivy repo scanning
-
-The `security.yaml` workflow runs Trivy in filesystem mode (`scanners: vuln`) against the entire repository, checking dependency lockfiles for known CVEs. Blocks PRs on CRITICAL/HIGH severity findings.
-
-IaC misconfiguration scanning (Dockerfiles, Helm, K8s YAML) is handled by Semgrep rather than Trivy, since Semgrep handles template syntax (Helm Go templates, Ansible Jinja2) better than Trivy's misconfig scanner, which parses raw files and produces false positives on unrendered templates.
-
-Trivy image scanning and repo scanning are **complementary**, not redundant: image scanning catches OS-level packages in base images (apt, apk) that repo scanning doesn't see, while repo scanning catches dependencies across the whole repo (including code that doesn't get containerized).
-
 ### Semgrep
 
 Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` container (version-pinned to avoid unexpected breakage from `latest`). Current rule packs:
@@ -147,7 +134,9 @@ Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif`). A follow-up 
 
 ### Dependency review
 
-The `dependency-review.yaml` workflow uses GitHub's first-party `actions/dependency-review-action`. On every PR, it diffs the dependency graph between the base and head commits and blocks the PR if any new dependency introduces a known critical vulnerability. It also posts a summary comment on every PR (`comment-summary-in-pr: always`) including license information for new dependencies.
+The `dependency-review.yaml` workflow uses GitHub's first-party `actions/dependency-review-action`. On every PR, it diffs the dependency graph between the base and head commits and blocks the PR if any new dependency introduces a known critical vulnerability. It posts a summary comment on every PR (`comment-summary-in-pr: always`).
+
+License checking is disabled (`license-check: false`) because the action's license detection relies on GitHub's dependency graph metadata, which has poor coverage for Python packages and GitHub Actions (most show as "Unknown License"). A dedicated license compliance tool would be more reliable for this.
 
 This only reviews **newly added or changed** dependencies — existing dependencies are not flagged.
 
@@ -183,8 +172,7 @@ To dismiss a finding, click into it and select **Dismiss alert** with a reason (
 
 Each scanner also prints findings directly in the GitHub Actions workflow log:
 
-- **Trivy image scan**: The gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version).
-- **Trivy repo scan**: Prints a table directly (uses `format: 'table'`).
+- **Trivy image scan**: The gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version), prefixed with the image name.
 - **Semgrep**: A `jq` step prints each finding's level, file:line, rule ID, and message excerpt.
 - **CodeQL**: Findings appear in the "Perform CodeQL Analysis" step output.
 
@@ -205,29 +193,24 @@ When scanners are first enabled, expect a large initial set of findings from pre
 
 ### Suppressing a Trivy CVE
 
-Add entries to `.trivyignore.yaml` in the repository root. The YAML format supports both global and path-specific suppressions.
+Each subproject can have its own `.trivyignore.yaml` alongside its `Dockerfile`. The composite action automatically detects and uses it if present. For example:
 
-**Suppress a CVE in a specific file only** (e.g., a pinned dependency you can't upgrade yet):
+```
+helm/jupyter/embedding-notebook/
+├── Dockerfile
+├── requirements.txt
+└── .trivyignore.yaml    # CVE suppressions for this image only
+```
+
+Example ignore file:
 
 ```yaml
 vulnerabilities:
   - id: CVE-2025-32434
-    paths:
-      - helm/jupyter/embedding-notebook/requirements.txt
     statement: "torch pinned at 2.0.1; upgrade to 2.6.0 pending validation"
 ```
 
-**Suppress a CVE globally** (e.g., a base-image CVE with no available fix):
-
-```yaml
-vulnerabilities:
-  - id: CVE-2025-12345
-    statement: "no fix available in python:3.11-slim as of 2026-02"
-```
-
-The ignore file is referenced via `trivy.yaml` (Trivy config) because the trivy-action's `trivyignores` input [strips file extensions](https://github.com/aquasecurity/trivy-action/issues/284), breaking YAML parsing. Using `trivy-config` preserves the `.yaml` extension so Trivy correctly interprets the YAML format.
-
-Both the Trivy repo scan (`security.yaml`) and image scan (`.github/actions/trivy-scan-image/`) use the same `trivy.yaml` config and therefore the same ignore file. Note that path-specific entries (`paths:`) use repo-relative paths and won't match inside container images — use global entries (without `paths`) for CVEs that should be suppressed in both scans.
+Images without a `.trivyignore.yaml` in their subproject directory run with no suppressions.
 
 ### Changing Trivy severity thresholds
 
@@ -239,8 +222,6 @@ In the composite action (`.github/actions/trivy-scan-image/action.yaml`), the de
     image-name: my-image
     severity: 'CRITICAL'
 ```
-
-For the repo-level scan in `security.yaml`, edit the `severity` field directly in the workflow.
 
 ### Adding or removing Semgrep rule packs
 
@@ -295,6 +276,6 @@ In `.github/workflows/codeql.yml`, the `queries` field controls the query pack. 
 ## Scheduled scans
 
 - **CodeQL**: Tuesdays at 01:36 UTC (configured in `codeql.yml`)
-- **Trivy repo scan + Semgrep**: Mondays at 06:00 UTC (configured in `security.yaml`)
+- **Semgrep**: Mondays at 06:00 UTC (configured in `security.yaml`)
 
 Scheduled scans catch newly disclosed CVEs and rule updates between code changes.

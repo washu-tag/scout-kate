@@ -164,6 +164,7 @@ jobs:
       - uses: ./.github/actions/trivy-scan-image
         with:
           image-name: ${{ matrix.image-name }}
+          subproject: ${{ matrix.subproject }}
   deploy-and-test:
     runs-on: ubuntu-latest
     needs:
