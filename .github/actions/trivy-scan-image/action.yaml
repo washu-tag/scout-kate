@@ -12,6 +12,10 @@ inputs:
     description: 'Severities to report and gate on'
     required: false
     default: 'CRITICAL,HIGH'
+  gate:
+    description: 'Fail the job if fixable vulnerabilities are found'
+    required: false
+    default: 'true'
 runs:
   using: 'composite'
   steps:
@@ -31,7 +35,6 @@ runs:
       run: echo "No artifact found for ${IMAGE_NAME} — image was not rebuilt. Skipping scan."
 
     - name: Configure Trivy
-      id: config
       if: steps.download.outcome == 'success'
       shell: bash
       env:
@@ -40,10 +43,10 @@ runs:
         ignorefile="${SUBPROJECT}/.trivyignore.yaml"
         if [ -n "${SUBPROJECT}" ] && [ -f "${ignorefile}" ]; then
           echo "Using ignore file: ${ignorefile}"
-          echo "ignorefile=${ignorefile}" >> "$GITHUB_OUTPUT"
+          echo "ignorefile: ${ignorefile}" > trivy-config.yaml
         else
           echo "No per-image ignore file found"
-          echo "ignorefile=" >> "$GITHUB_OUTPUT"
+          echo "# No ignore file" > trivy-config.yaml
         fi
 
     - name: Run Trivy (JSON — single scan)
@@ -51,7 +54,6 @@ runs:
       uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
       env:
         TRIVY_DISABLE_VEX_NOTICE: 'true'
-        TRIVY_IGNOREFILE: ${{ steps.config.outputs.ignorefile }}
       with:
         input: '${{ runner.temp }}/${{ inputs.image-name }}.tar'
         scan-type: 'image'
@@ -59,6 +61,7 @@ runs:
         output: 'trivy-${{ inputs.image-name }}.json'
         severity: '${{ inputs.severity }}'
         exit-code: '0'
+        trivy-config: trivy-config.yaml
 
     - name: Convert JSON to SARIF
       if: steps.download.outcome == 'success'
@@ -67,9 +70,11 @@ runs:
         IMAGE_NAME: ${{ inputs.image-name }}
       run: |
         trivy convert --format sarif --output "trivy-${IMAGE_NAME}.sarif" "trivy-${IMAGE_NAME}.json"
-        # Tag the tool name with the image so alerts are identifiable in the Security tab
-        jq --arg name "${IMAGE_NAME}" '.runs[].tool.driver.name = "Trivy (" + $name + ")"' \
-          "trivy-${IMAGE_NAME}.sarif" > tmp.sarif && mv tmp.sarif "trivy-${IMAGE_NAME}.sarif"
+        # Prefix alert messages and tool name with the image name for identification in the Security tab
+        jq --arg name "${IMAGE_NAME}" '
+          .runs[].tool.driver.name = "Trivy (" + $name + ")" |
+          .runs[].results[]?.message.text |= "[" + $name + "] " + .
+        ' "trivy-${IMAGE_NAME}.sarif" > tmp.sarif && mv tmp.sarif "trivy-${IMAGE_NAME}.sarif"
 
     - name: Upload SARIF
       if: steps.download.outcome == 'success'
@@ -79,7 +84,7 @@ runs:
         category: 'trivy-${{ inputs.image-name }}'
 
     - name: Gate on fixable vulnerabilities
-      if: steps.download.outcome == 'success'
+      if: steps.download.outcome == 'success' && inputs.gate == 'true'
       shell: bash
       env:
         IMAGE_NAME: ${{ inputs.image-name }}
