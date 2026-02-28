@@ -12,10 +12,6 @@ inputs:
     description: 'Severities to report and gate on'
     required: false
     default: 'CRITICAL,HIGH'
-  gate:
-    description: 'Fail the job if fixable vulnerabilities are found'
-    required: false
-    default: 'true'
 runs:
   using: 'composite'
   steps:
@@ -84,7 +80,7 @@ runs:
         category: 'trivy-${{ inputs.image-name }}'
 
     - name: Gate on fixable vulnerabilities
-      if: steps.download.outcome == 'success' && inputs.gate == 'true'
+      if: steps.download.outcome == 'success'
       shell: bash
       env:
         IMAGE_NAME: ${{ inputs.image-name }}

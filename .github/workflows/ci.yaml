@@ -166,7 +166,7 @@ jobs:
         with:
           image-name: ${{ matrix.image-name }}
           subproject: ${{ matrix.subproject }}
-          gate: ${{ matrix.gate != false }}
+        continue-on-error: ${{ matrix.gate == false }}
   deploy-and-test:
     runs-on: ubuntu-latest
     needs:
