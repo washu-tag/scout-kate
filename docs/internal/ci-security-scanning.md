@@ -7,8 +7,8 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 | Tool | What it scans | Workflow file | Blocks PRs? | Findings visible in |
 |---|---|---|---|---|
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
-| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (fixable CRITICAL/HIGH only) | Security tab > Code scanning |
-| **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Code Scanning) | Security tab, PR annotations |
+| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Configurable per image (`gate` flag) | Security tab > Code scanning |
+| **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Require code scanning results) | Security tab, PR annotations |
 | **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
 | **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
 
@@ -42,13 +42,9 @@ Third-party SARIF uploads (Trivy, Semgrep) require **GitHub Advanced Security** 
 
 Check: **Settings > Code security > GitHub Advanced Security**.
 
-### Rulesets: require status checks and code scanning results
+### Rulesets: require status checks
 
-The repository ruleset for `main` (**Settings > Rules > Rulesets**) has two complementary sections that work together:
-
-**Require status checks to pass** ensures the CI jobs actually ran successfully. **Require code scanning results** inspects the SARIF findings and blocks only if a PR introduces *new* alerts above a severity threshold. You want both — the status check catches job failures (crashes, timeouts), while code scanning results evaluates what was found.
-
-#### Status checks
+The repository ruleset for `main` (**Settings > Rules > Rulesets**):
 
 Under **Require status checks to pass**, add the workflow job names:
 
@@ -60,34 +56,16 @@ Under **Require status checks to pass**, add the workflow job names:
 | `scan-images` | `ci.yaml` | Trivy image scan job failures |
 | `Dependency Review / dependency-review` | `dependency-review.yaml` | Dependency review failure (also gates via exit-code on critical vulns) |
 
-#### Code scanning results
-
-Under **Require code scanning results**, click **+ Add tool** for each SARIF-uploading scanner:
+Additionally, under **Require code scanning results**, add Semgrep to block PRs that introduce new findings:
 
 | Tool | Security alerts | Alerts |
 |---|---|---|
 | **CodeQL** | High or higher | Errors |
 | **Semgrep** | High or higher | Errors |
-| **Trivy** | High or higher | Errors |
 
-Each tool has two threshold dropdowns:
+This provides diff-aware gating — only findings *new* in a PR block the merge, not pre-existing ones. Tools appear in the dropdown after their first SARIF upload to the repository.
 
-- **Security alerts** — vulnerability severity: `None`, `Critical`, `High or higher`, `Medium or higher`, `All`
-- **Alerts** — general code quality: `None`, `Errors`, `Errors and Warnings`, `All`
-
-Tools appear in the dropdown after their first SARIF upload to the repository. If a tool doesn't appear yet, merge this PR first, then add it.
-
-Note: Trivy image scanning uploads SARIF per image (categories `trivy-hl7log-extractor`, `trivy-launchpad`, etc.). The tool may appear as a single "Trivy" entry or per-category — add whichever appears in the dropdown.
-
-The dependency review action doesn't upload SARIF — it gates directly via `exit-code` under the status checks section above.
-
-#### Why different gating approaches?
-
-| Scanner | Gating | Why |
-|---|---|---|
-| **CodeQL, Semgrep** | SARIF (code scanning results) | Findings are in source code — diff-aware gating prevents pre-existing issues from blocking unrelated PRs |
-| **Trivy image scan** | SARIF + exit-code on fixable | Findings visible in Security tab; exit-code gates on fixable vulns only |
-| **Dependency review** | Exit-code only | Already diff-aware by design (only examines deps added/changed in the PR). Also posts PR comments, which SARIF doesn't support |
+Trivy image scan also uploads SARIF but does not need to be added here — it gates via its own exit-code check in the status checks above.
 
 ## How each scanner works
 
@@ -110,15 +88,16 @@ Each matrix entry attempts to download the image tarball artifact. If the image 
 
 The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a single Trivy invocation per image:
 
-1. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached automatically by the trivy-action.
-2. **SARIF conversion** — `trivy convert` produces SARIF from the JSON, which is uploaded to the GitHub Security tab for visibility.
-3. **Gate check** — a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity.
+1. **Configure** — checks for a per-image `.trivyignore.yaml` in the subproject directory and generates a Trivy config if found.
+2. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached automatically by the trivy-action.
+3. **SARIF conversion** — `trivy convert` produces SARIF from the JSON. The SARIF is post-processed with `jq` to tag the tool name and alert messages with the image name (e.g., "Trivy (launchpad)", "[launchpad] CVE description...") so findings are identifiable in the Security tab. The tagged SARIF is uploaded to GitHub.
+4. **Gate check** — if `gate` is enabled (default), a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity. Set `gate: false` in the matrix to scan and report without blocking.
 
 The `publish` and `publish-demo` jobs require `scan-images` in their `needs:` array, so a failed or cancelled scan blocks publishing.
 
 All third-party action references are pinned to commit hashes (not tags) to prevent supply chain attacks. Dependabot's `github-actions` ecosystem keeps these pins current.
 
-**Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook`, `launchpad`, `superset`, `keycloak`.
+**Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook` (gate disabled), `launchpad`, `superset`, `keycloak`.
 
 ### Semgrep
 
@@ -130,7 +109,7 @@ Runs in the `security.yaml` workflow inside the official `semgrep/semgrep` conta
 - `p/kubernetes` — Kubernetes manifest rules
 - `p/owasp-top-ten` — OWASP Top 10 coverage
 
-Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif`). A follow-up step parses the SARIF with `jq` to print a human-readable summary of findings to the workflow log. The SARIF is uploaded to GitHub's Security tab, which handles diff-aware gating — only findings *new* in a PR block the merge (via the "Code scanning results / semgrep" status check), not pre-existing ones. This requires the check to be set as required in **Settings > Branches > Branch protection rules**.
+Semgrep runs once in SARIF mode (`--sarif --output semgrep.sarif`). A follow-up step parses the SARIF with `jq` to print a human-readable summary of findings to the workflow log. The SARIF is uploaded to GitHub's Security tab, which handles diff-aware reporting — new findings in a PR appear as inline annotations, while pre-existing findings are tracked in the Security tab.
 
 ### Dependency review
 
@@ -172,7 +151,7 @@ To dismiss a finding, click into it and select **Dismiss alert** with a reason (
 
 Each scanner also prints findings directly in the GitHub Actions workflow log:
 
-- **Trivy image scan**: The gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version), prefixed with the image name.
+- **Trivy image scan**: When gating is enabled, the gate step prints a table of fixable vulnerabilities (severity, CVE ID, package, installed vs. fixed version), prefixed with the image name.
 - **Semgrep**: A `jq` step prints each finding's level, file:line, rule ID, and message excerpt.
 - **CodeQL**: Findings appear in the "Perform CodeQL Analysis" step output.
 
@@ -264,6 +243,14 @@ strategy:
       # ... existing entries ...
       - image-name: new-image
         subproject: path/to/new-image
+```
+
+To disable the gate for an image (scan and report without blocking), add `gate: false`:
+
+```yaml
+      - image-name: new-image
+        subproject: path/to/new-image
+        gate: false
 ```
 
 ### Upgrading CodeQL query pack
