@@ -917,15 +917,15 @@ class TestGracefulDegradation:
 class TestDebugLogging:
     """Test debug logging functionality."""
 
-    def test_debug_logging_enabled_by_default(self, filter_instance):
-        """Debug logging is enabled by default."""
-        assert filter_instance.valves.debug_logging is True
+    def test_debug_logging_disabled_by_default(self, filter_instance):
+        """Debug logging is disabled by default."""
+        assert filter_instance.valves.debug_logging is False
 
-    def test_debug_logging_can_be_disabled(self):
-        """Debug logging can be disabled via valve."""
+    def test_debug_logging_can_be_enabled(self):
+        """Debug logging can be enabled via valve."""
         f = Filter()
-        f.valves.debug_logging = False
-        assert f.valves.debug_logging is False
+        f.valves.debug_logging = True
+        assert f.valves.debug_logging is True
 
     def test_format_messages_summary_empty(self, filter_instance):
         """Format empty message list."""
