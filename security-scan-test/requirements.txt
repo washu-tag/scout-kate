@@ -1,0 +1,4 @@
+# SECURITY SCAN TEST — DELETE THIS DIRECTORY AFTER VERIFYING SCANNERS
+# This file should be flagged by Trivy repo scan (CRITICAL vuln)
+# CVE-2023-47627 — critical request smuggling vulnerability
+aiohttp==3.8.5

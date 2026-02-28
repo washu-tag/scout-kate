@@ -100,6 +100,8 @@ scout/
 ├── helm/                      # Helm chart configurations
 ├── terraform/                 # Infrastructure as Code (optional)
 └── tests/                     # Integration and unit tests
+    ├── auth/                  # Playwright auth tests (TypeScript/Node.js)
+    └── ingest/                # HL7 ingestion integration tests (Java/Gradle)
 ```
 
 ## Key Technologies
@@ -323,8 +325,7 @@ If configured with `external_url` in `inventory.yaml` and DNS/TLS setup:
 ### From Within Cluster
 Services communicate via Kubernetes service names:
 - `superset.<namespace>.svc.cluster.local`
-- `proxy-public.jupyter.svc.cluster.local`
-- `grafana.grafana.svc.cluster.local`
+- `grafana.<namespace>.svc.cluster.local`
 - etc.
 
 ## Common Tasks
@@ -382,7 +383,12 @@ make install-analytics
 ## Testing
 
 ### Integration Tests
-Located in `tests/` - test end-to-end ingestion workflows with Temporal
+
+#### Ingest Tests
+Located in `tests/ingest/` - test end-to-end ingestion workflows with Temporal
+
+#### Auth Tests
+Located in `tests/auth/` - Playwright browser-based authorization tests for OAuth2 Proxy + Keycloak
 
 ### Unit Tests
 - **Python** (hl7-transformer): `pytest` in `extractor/hl7-transformer/`

@@ -65,153 +65,46 @@ jobs:
           java-version: ${{ ENV.JAVA_VERSION }}
           cache: 'gradle'
       - uses: pre-commit/action@v3.0.1
-  build-and-upload-hl7log-extractor:
+  build-and-upload:
     runs-on: ubuntu-latest
     needs: changes
     permissions:
       contents: read
       attestations: write
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: &image-matrix
+          - image-name: hl7log-extractor
+            subproject: extractor/hl7log-extractor
+          - image-name: hl7-transformer
+            subproject: extractor/hl7-transformer
+          - image-name: pyspark-notebook
+            subproject: helm/jupyter/notebook
+          - image-name: embedding-notebook
+            subproject: helm/jupyter/embedding-notebook
+            allow-failure: true
+          - image-name: launchpad
+            subproject: launchpad
+          - image-name: superset
+            subproject: helm/superset
+          - image-name: keycloak
+            subproject: keycloak
     steps:
       - uses: actions/checkout@v4.2.1
       - name: 'Check if image exists'
         id: check-image
         uses: ./.github/actions/check-image-exists
         with:
-          subproject: extractor/hl7log-extractor
-          image-name: hl7log-extractor
-      - name: 'Build/Cache Image - hl7log-extractor'
-        if: needs.changes.outputs.hl7log-extractor == 'true' || steps.check-image.outputs.exists == 'false'
+          subproject: ${{ matrix.subproject }}
+          image-name: ${{ matrix.image-name }}
+      - name: 'Build/Cache Image - ${{ matrix.image-name }}'
+        if: needs.changes.outputs[matrix.image-name] == 'true' || steps.check-image.outputs.exists == 'false'
         uses: ./.github/actions/docker-build-cache
         with:
-          subproject: extractor/hl7log-extractor
-          image-name: hl7log-extractor
-  build-and-upload-hl7-transformer:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: extractor/hl7-transformer
-          image-name: hl7-transformer
-      - name: 'Build/Cache Image - hl7-transformer'
-        if: needs.changes.outputs.hl7-transformer == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: extractor/hl7-transformer
-          image-name: hl7-transformer
-  build-and-upload-pyspark-notebook:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: helm/jupyter/notebook
-          image-name: pyspark-notebook
-      - name: 'Build/Cache Image - pyspark-notebook'
-        if: needs.changes.outputs.pyspark-notebook == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: helm/jupyter/notebook
-          image-name: pyspark-notebook
-  build-and-upload-embedding-notebook:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: helm/jupyter/embedding-notebook
-          image-name: embedding-notebook
-      - name: 'Build/Cache Image - embedding-notebook'
-        if: needs.changes.outputs.embedding-notebook == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: helm/jupyter/embedding-notebook
-          image-name: embedding-notebook
-  build-and-upload-launchpad:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: launchpad
-          image-name: launchpad
-      - name: 'Build/Cache Image - launchpad'
-        if: needs.changes.outputs.launchpad == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: launchpad
-          image-name: launchpad
-  build-and-upload-superset:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: helm/superset
-          image-name: superset
-      - name: 'Build/Cache Image - superset'
-        if: needs.changes.outputs.superset == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: helm/superset
-          image-name: superset
-  build-and-upload-keycloak:
-    runs-on: ubuntu-latest
-    needs: changes
-    permissions:
-      contents: read
-      attestations: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4.2.1
-      - name: 'Check if image exists'
-        id: check-image
-        uses: ./.github/actions/check-image-exists
-        with:
-          subproject: keycloak
-          image-name: keycloak
-      - name: 'Build/Cache Image - keycloak'
-        if: needs.changes.outputs.keycloak == 'true' || steps.check-image.outputs.exists == 'false'
-        uses: ./.github/actions/docker-build-cache
-        with:
-          subproject: keycloak
-          image-name: keycloak
+          subproject: ${{ matrix.subproject }}
+          image-name: ${{ matrix.image-name }}
   unit-test:
     runs-on: ubuntu-latest
     permissions:
@@ -237,13 +130,16 @@ jobs:
           python-version: '3.12'
       - name: Install Molecule and dependencies
         run: |
-          pip install molecule ansible-core pytest pydantic
+          pip install molecule ansible-core pytest pydantic tiktoken httpx pytest-asyncio
       - name: 'Unit tests: filter plugins'
         shell: bash
         run: cd ansible && pytest tests/unit/filter_plugins/ -v
       - name: 'Unit tests: Open WebUI link sanitizer filter'
         shell: bash
         run: cd ansible/roles/open-webui/files && pytest test_link_sanitizer_filter.py -v
+      - name: 'Unit tests: Open WebUI context summarization filter'
+        shell: bash
+        run: cd ansible/roles/open-webui/files && pytest test_context_summarization_filter.py -v
       - name: 'Unit tests: verify-node'
         shell: bash
         run: cd verify-node && pytest tests/ -v
@@ -253,17 +149,29 @@ jobs:
       - name: 'Molecule tests: scout_common role'
         shell: bash
         run: cd ansible/roles/scout_common && molecule test -s default
+  scan-images:
+    runs-on: ubuntu-latest
+    needs: build-and-upload
+    if: ${{ !cancelled() && needs.build-and-upload.result == 'success' }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: *image-matrix
+    steps:
+      - uses: actions/checkout@v4.2.1
+      - uses: ./.github/actions/trivy-scan-image
+        with:
+          image-name: ${{ matrix.image-name }}
+          subproject: ${{ matrix.subproject }}
+        continue-on-error: ${{ matrix.allow-failure == true }}
   deploy-and-test:
     runs-on: ubuntu-latest
     needs:
       - lint
-      - build-and-upload-hl7log-extractor
-      - build-and-upload-hl7-transformer
-      - build-and-upload-pyspark-notebook
-      - build-and-upload-embedding-notebook
-      - build-and-upload-launchpad
-      - build-and-upload-superset
-      - build-and-upload-keycloak
+      - build-and-upload
       - unit-test
       - ansible-and-python-tests
     permissions:
@@ -343,7 +251,7 @@ jobs:
       - name: 'Run tests'
         shell: bash
         run: |
-          cp .github/ci_resources/test_config_template.json tests/src/test/resources/config/local.json
+          cp .github/ci_resources/test_config_template.json tests/ingest/src/test/resources/config/local.json
           sed -i "s:WORK_DIR:$(pwd):" .github/ci_resources/tests-job.yaml
           sudo -E kubectl apply -f .github/ci_resources/tests-job.yaml
           sudo -E kubectl wait --for=condition=complete --timeout=600s job/ci-tests -n scout-extractor &
@@ -360,7 +268,7 @@ jobs:
         uses: test-summary/action@v2.4
         if: always()
         with:
-          paths: 'tests/**/TEST-*.xml'
+          paths: 'tests/ingest/**/TEST-*.xml'
           show: 'fail, skip'
       - name: Logging (hl7log-extractor)
         shell: bash
@@ -373,14 +281,14 @@ jobs:
         run: |
           sudo -E kubectl -n scout-extractor logs deployment/hl7-transformer
   publish:
-    if: github.ref_name == 'main'
+    if: github.ref_name == 'main' && needs.deploy-and-test.result == 'success' && needs.scan-images.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
-    needs: [changes, deploy-and-test]
+    needs: [changes, deploy-and-test, scan-images]
     steps:
       - name: Checkout GitHub Action
         uses: actions/checkout@v4.2.1
@@ -443,14 +351,14 @@ jobs:
         with:
           image-name: keycloak
   publish-demo:
-    if: startsWith(github.ref_name, 'demo')
+    if: startsWith(github.ref_name, 'demo') && needs.deploy-and-test.result == 'success' && needs.scan-images.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
-    needs: [changes, deploy-and-test]
+    needs: [changes, deploy-and-test, scan-images]
     steps:
       - name: Checkout GitHub Action
         uses: actions/checkout@v4.2.1

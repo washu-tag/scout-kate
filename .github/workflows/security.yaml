@@ -1,0 +1,37 @@
+name: Security Scanning
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am UTC
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.152.0
+    steps:
+      - uses: actions/checkout@v4.2.1
+
+      - name: Run Semgrep
+        run: semgrep scan --config p/default --config p/secrets --config p/docker --config p/kubernetes --config p/owasp-top-ten --sarif --output semgrep.sarif
+
+      - name: Print findings to log
+        if: always()
+        shell: bash
+        run: |
+          jq -r '.runs[].results[] | "\(.level)\t\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)\t\(.ruleId)\t\(.message.text[0:120])"' semgrep.sarif | sort || echo "No findings or failed to parse SARIF"
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'semgrep.sarif'
+          category: 'semgrep'
