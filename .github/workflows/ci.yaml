@@ -84,7 +84,7 @@ jobs:
             subproject: helm/jupyter/notebook
           - image-name: embedding-notebook
             subproject: helm/jupyter/embedding-notebook
-            gate: false
+            allow-failure: true
           - image-name: launchpad
             subproject: launchpad
           - image-name: superset
@@ -166,7 +166,7 @@ jobs:
         with:
           image-name: ${{ matrix.image-name }}
           subproject: ${{ matrix.subproject }}
-        continue-on-error: ${{ matrix.gate == false }}
+        continue-on-error: ${{ matrix.allow-failure == true }}
   deploy-and-test:
     runs-on: ubuntu-latest
     needs:

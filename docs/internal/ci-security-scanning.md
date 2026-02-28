@@ -7,7 +7,7 @@ Scout's CI pipeline includes several layers of automated security scanning. This
 | Tool | What it scans | Workflow file | Blocks PRs? | Findings visible in |
 |---|---|---|---|---|
 | **CodeQL** (`security-extended`) | Source code (JS/TS, Python, Java, Actions) | `codeql.yml` | Yes | Security tab > Code scanning |
-| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Configurable per image (`gate` flag) | Security tab > Code scanning |
+| **Trivy image scan** | Container images built in CI | `ci.yaml` (scan-images job) | Yes (configurable per image via `allow-failure`) | Security tab > Code scanning |
 | **Semgrep** | K8s, YAML, Dockerfiles, secrets, OWASP | `security.yaml` | Yes (new findings only, via Require code scanning results) | Security tab, PR annotations |
 | **Dependency review** | New dependencies introduced in a PR | `dependency-review.yaml` | Yes (critical vulns only) | PR comment |
 | **Dependabot** | GitHub Actions version updates | `dependabot.yml` | N/A (opens PRs) | Pull requests |
@@ -91,13 +91,13 @@ The composite action (`.github/actions/trivy-scan-image/action.yaml`) does a sin
 1. **Configure** — checks for a per-image `.trivyignore.yaml` in the subproject directory and generates a Trivy config if found.
 2. **Single JSON scan** — Trivy scans once, outputting JSON. The Trivy DB is cached automatically by the trivy-action.
 3. **SARIF conversion** — `trivy convert` produces SARIF from the JSON. The SARIF is post-processed with `jq` to tag the tool name and alert messages with the image name (e.g., "Trivy (launchpad)", "[launchpad] CVE description...") so findings are identifiable in the Security tab. The tagged SARIF is uploaded to GitHub.
-4. **Gate check** — if `gate` is enabled (default), a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity. Set `gate: false` in the matrix to scan and report without blocking.
+4. **Gate check** — a shell step parses the JSON for fixable vulnerabilities and fails the job if any exist at CRITICAL or HIGH severity. Images with `allow-failure: true` in the matrix still scan and report but don't block the build.
 
 The `publish` and `publish-demo` jobs require `scan-images` in their `needs:` array, so a failed or cancelled scan blocks publishing.
 
 All third-party action references are pinned to commit hashes (not tags) to prevent supply chain attacks. Dependabot's `github-actions` ecosystem keeps these pins current.
 
-**Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook` (gate disabled), `launchpad`, `superset`, `keycloak`.
+**Images scanned**: `hl7log-extractor`, `hl7-transformer`, `pyspark-notebook`, `embedding-notebook` (`allow-failure`), `launchpad`, `superset`, `keycloak`.
 
 ### Semgrep
 
@@ -245,12 +245,12 @@ strategy:
         subproject: path/to/new-image
 ```
 
-To disable the gate for an image (scan and report without blocking), add `gate: false`:
+To allow an image to fail scanning without blocking the build (scan and report only), add `allow-failure: true`:
 
 ```yaml
       - image-name: new-image
         subproject: path/to/new-image
-        gate: false
+        allow-failure: true
 ```
 
 ### Upgrading CodeQL query pack
