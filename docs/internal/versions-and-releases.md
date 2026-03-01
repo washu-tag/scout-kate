@@ -336,7 +336,7 @@ Workflows use `actions/create-github-app-token` to generate a short-lived instal
 ```yaml
 - name: Generate token from GitHub App
   id: app_token
-  uses: actions/create-github-app-token@v1
+  uses: actions/create-github-app-token@v2
   with:
     app-id: ${{ secrets.<APP_ID_SECRET> }}
     private-key: ${{ secrets.<PRIVATE_KEY_SECRET> }}
