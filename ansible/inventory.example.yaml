@@ -209,6 +209,22 @@ k3s_cluster:
     #---------------------------------------------------------------------------
     k3s_token: $(openssl rand -hex 16 | ansible-vault encrypt_string --vault-password-file vault/pwd.sh)
 
+    # CoreDNS custom DNS configuration (see docs/source/technical/inventory.md)
+    # When air_gapped: true, CoreDNS automatically gets deny-all + cluster.local blocks
+    #
+    # Domains to forward to /etc/resolv.conf (e.g., Tailscale, VPN):
+    # coredns_forward_domains:
+    #   - ts.net
+    #
+    # Arbitrary CoreDNS server blocks (works with or without air_gapped):
+    # coredns_extra_server_blocks:
+    #   scout-override: !unsafe |
+    #     app.example.com:53 {
+    #       template IN A app.example.com {
+    #         answer "{{ .Name }} 60 IN A 198.51.100.10"
+    #       }
+    #     }
+
     #---------------------------------------------------------------------------
     # OAuth2 Proxy
     #---------------------------------------------------------------------------

@@ -19,6 +19,8 @@ grafana.ini:
     role_attribute_strict: true
     allow_assign_grafana_admin: true
     signout_redirect_url: '{{ oauth2_proxy_signout_url }}'
+  security:
+    disable_gravatar: true
   server:
     root_url: 'https://grafana.{{ server_hostname }}'
   metrics:
@@ -35,11 +37,11 @@ grafana.ini:
     from_name: "{{ grafana_smtp_from_name | default('Scout') }}"
     skip_verify: "{{ grafana_smtp_skip_verify | default(false) }}"
 {% endif %}
-{% if air_gapped | default(false) %}
   analytics:
     reporting_enabled: false
     check_for_updates: false
     check_for_plugin_updates: false
+{% if air_gapped | default(false) %}
   plugins:
     public_key_retrieval_disabled: true
     preinstall_disabled: true

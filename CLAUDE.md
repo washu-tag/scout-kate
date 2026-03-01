@@ -100,6 +100,8 @@ scout/
 ├── helm/                      # Helm chart configurations
 ├── terraform/                 # Infrastructure as Code (optional)
 └── tests/                     # Integration and unit tests
+    ├── auth/                  # Playwright auth tests (TypeScript/Node.js)
+    └── ingest/                # HL7 ingestion integration tests (Java/Gradle)
 ```
 
 ## Key Technologies
@@ -323,8 +325,7 @@ If configured with `external_url` in `inventory.yaml` and DNS/TLS setup:
 ### From Within Cluster
 Services communicate via Kubernetes service names:
 - `superset.<namespace>.svc.cluster.local`
-- `proxy-public.jupyter.svc.cluster.local`
-- `grafana.grafana.svc.cluster.local`
+- `grafana.<namespace>.svc.cluster.local`
 - etc.
 
 ## Common Tasks
@@ -382,7 +383,12 @@ make install-analytics
 ## Testing
 
 ### Integration Tests
-Located in `tests/` - test end-to-end ingestion workflows with Temporal
+
+#### Ingest Tests
+Located in `tests/ingest/` - test end-to-end ingestion workflows with Temporal
+
+#### Auth Tests
+Located in `tests/auth/` - Playwright browser-based authorization tests for OAuth2 Proxy + Keycloak
 
 ### Unit Tests
 - **Python** (hl7-transformer): `pytest` in `extractor/hl7-transformer/`
@@ -493,6 +499,8 @@ ADRs in `docs/internal/adr/` document significant architectural decisions. Consu
 - **ADR 0011: Deployment Portability via Layered Architecture** — Introduces a three-layer model (Infrastructure, Platform Services, Applications) and service-mode variables (examples: `postgres_mode`, `object_storage_mode`, `redis_mode`) for cross-platform deployment. Consult when adding new services, modifying deployment patterns, or supporting new platforms.
 
 - **ADR 0012: Security Scan Response and Hardening** — Consolidates findings from Tenable Nessus and OWASP ZAP scans, implementing a global Traefik security headers middleware (HSTS, CSP, X-Frame-Options, etc.) to address the majority of findings. Consult when modifying security headers, Traefik middleware configuration, or evaluating future scan results.
+
+- **ADR 0014: Dependency CVE Monitoring via Renovate and Dependabot** — Uses self-hosted Renovate (custom regex manager) and Dependabot to monitor dependencies for known CVEs only — not routine version updates. Renovate covers `versions.yaml` (Helm charts, Docker images, GitHub releases); Dependabot covers application dependencies (npm, pip, gradle, Dockerfile base images) via GitHub UI settings, plus GitHub Actions version updates via `dependabot.yml`. Consult when adding new dependencies to `versions.yaml` (add `# renovate:` annotation) or configuring Dependabot (GitHub UI: **Settings > Security > Advanced Security**).
 
 ## Key Concepts for AI Assistants
 
