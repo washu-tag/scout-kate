@@ -1,14 +1,20 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", "security:only-security-updates"],
+  "extends": ["config:recommended"],
 
   // Don't auto-merge — test automation isn't robust enough
   "automerge": false,
 
-  // Override vulnerability alert labels (preset only enables; we add labels)
+  // Require manual approval on the Dependency Dashboard before opening PRs.
+  // This lets the dashboard list all available updates (visibility) without
+  // creating PR noise. CVE PRs bypass this via vulnerabilityAlerts below.
+  "dependencyDashboardApproval": true,
+
+  // CVE PRs are created automatically (no dashboard approval needed)
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["dependencies", "security"]
+    "labels": ["dependencies", "security"],
+    "dependencyDashboardApproval": false
   },
 
   // Dependency dashboard (GitHub issue) for overview of all detected dependencies
