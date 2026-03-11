@@ -34,6 +34,12 @@
 
   // Remind reviewers about coupled dependencies
   "packageRules": [
+    // k3s uses non-standard versioning (v1.34.1+k3s1); regex versioning
+    // keeps the +k3s suffix locked and tracks the build number
+    {
+      "matchDepNames": ["k3s-io/k3s"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?<compatibility>\\+k3s)(?<build>\\d+)$"
+    },
     {
       "matchDepNames": ["cass-operator"],
       "prBodyNotes": [
