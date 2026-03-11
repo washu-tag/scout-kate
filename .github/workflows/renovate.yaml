@@ -3,6 +3,8 @@ name: Renovate
 on:
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6am UTC
+  issues:
+    types: [edited]
   workflow_dispatch:
 
 permissions: {}
@@ -10,6 +12,9 @@ permissions: {}
 jobs:
   renovate:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'issues' ||
+      github.event.issue.title == 'Dependency Dashboard'
     permissions:
       contents: read
     steps:
@@ -28,4 +33,4 @@ jobs:
           LOG_LEVEL: info
           RENOVATE_ONBOARDING: 'false'
           RENOVATE_REQUIRE_CONFIG: optional
-          RENOVATE_REPOSITORIES: '["washu-tag/scout-kate"]'
+          RENOVATE_REPOSITORIES: '["washu-tag/scout"]'
